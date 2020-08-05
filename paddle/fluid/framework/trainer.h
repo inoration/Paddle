@@ -144,6 +144,11 @@ class PipelineTrainer : public TrainerBase {
   int scope_queue_size_;
   int sync_steps_;
 
+  // section/op
+  std::vector<std::vector<std::string>> op_name_;
+  // section/op/<min, max, sum>/pipeline*thread
+  std::vector<std::vector<std::vector<std::vector<double>>>> op_time_stats_;
+
   SectionWorkerParameter pipeline_config_;
 
   // The in/output var names for each section

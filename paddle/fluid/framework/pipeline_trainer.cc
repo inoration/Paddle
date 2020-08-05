@@ -13,6 +13,9 @@
 // limitations under the License.
 
 #if defined(PADDLE_WITH_NCCL)
+
+#include <cstdio>
+
 #include "paddle/fluid/framework/data_feed_factory.h"
 #include "paddle/fluid/framework/device_worker_factory.h"
 #include "paddle/fluid/framework/trainer.h"
@@ -116,6 +119,48 @@ void PipelineTrainer::Initialize(const TrainerDesc& trainer_desc,
       }
     }
   }
+
+  if (debug_) {
+    // section
+    op_time_stats_.resize(section_num_);
+    op_name_.resize(section_num_);
+    for (size_t i = 0; i < op_time_stats_.size(); ++i) {
+      std::shared_ptr<framework::ProgramDesc> program_desc(new ProgramDesc(
+              trainer_desc.section_param().section_config(i).program_desc()));
+      for (auto& op_desc : program_desc->Block(0).AllOps()) {
+        op_name_[i].push_back(op_desc->Type());
+      }
+
+      // ops
+      int num = \
+          pipeline_num_ * pipeline_config_.section_config(i).concurrency();
+      op_time_stats_[i].resize(op_name_[i].size());
+      for (size_t j = 0; j < op_time_stats_[i].size(); ++j) {
+        // min max sum
+        op_time_stats_[i][j].resize(3);
+        for (size_t k = 0; k < 3; ++k) {
+          // pipeline*thread
+          op_time_stats_[i][j][k].resize(num);
+          for (size_t l = 0; l < op_time_stats_[i][j][k].size(); ++l) {
+            op_time_stats_[i][j][k][l] = 0.0;
+            op_time_stats_[i][j][k][l] = 0.0;
+            op_time_stats_[i][j][k][l] = 0.0;
+          }
+        }
+      }
+
+      // init stats
+      for (size_t j = 0; j < workers_[i].size(); ++j) {
+        for (size_t k = 0; k < workers_[i][j].size(); ++k) {
+          auto worker = \
+            std::dynamic_pointer_cast<paddle::framework::SectionWorker>(
+                workers_[i][j][k]);
+          worker->SetOpTimeStats(&op_time_stats_);
+        }
+      }
+    }
+  }
+
   param_need_sync_.reset(
       new std::vector<std::string>(pipeline_config_.param_need_sync().begin(),
                                    pipeline_config_.param_need_sync().end()));
@@ -306,6 +351,40 @@ void PipelineTrainer::Finalize() {
   for (auto& th : section_threads_) {
     th.join();
   }
+
+  if (debug_) {
+    int total = dataset_ptr_->GetMemoryDataSize();
+    total = total == 0 ? 1 : total;
+    for (size_t i = 0; i < op_time_stats_.size(); ++i) {
+      std::string out;
+      char buf[300];
+      std::snprintf(buf, sizeof(buf), "%-50s %-20s %-20s %-20s\n",
+                    "op", "min", "max", "mean");
+      out += buf;
+      for (size_t j = 0; j < op_time_stats_[i].size(); ++j) {
+        double min = 0.0;
+        double max = 0.0;
+        if (op_time_stats_[i][j][0].size() > 0) {
+          min = *std::min_element(op_time_stats_[i][j][0].begin(),
+                                  op_time_stats_[i][j][0].end());
+        }
+        if (op_time_stats_[i][j][1].size() > 0) {
+          max = *std::min_element(op_time_stats_[i][j][1].begin(),
+                                  op_time_stats_[i][j][1].end());
+        }
+        double sum = std::accumulate(op_time_stats_[i][j][2].begin(),
+                                     op_time_stats_[i][j][2].end(), 0.0);
+
+        std::snprintf(buf, sizeof(buf), "%-50s %-20f %-20f %-20f\n",
+                      op_name_[i][j].c_str(), min, max, sum / total);
+        out += buf;
+      }
+
+      LOG(INFO) << "\n-------------------- SECTION[" << i <<"]"
+                << " OP TIME STATS --------------------\n" << out;
+    }
+  }
+
   if (need_dump_field_) {
     FinalizeDumpEnv();
   }

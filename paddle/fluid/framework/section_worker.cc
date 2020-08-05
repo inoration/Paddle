@@ -10,6 +10,9 @@ See the License for the specific language governing permissions and
 limitations under the License. */
 
 #if defined(PADDLE_WITH_NCCL)
+
+#include <limits>
+
 #include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
@@ -296,13 +299,20 @@ void SectionWorker::TrainFilesWithProfiler() {
   platform::Timer main_timer;
   platform::Timer outer_timer;
 
+  std::vector<double> op_min_time;
+  std::vector<double> op_max_time;
+
   std::vector<double> op_total_time;
   std::vector<std::string> op_name;
   for (auto& op : ops_) {
     op_name.push_back(op->Type());
   }
+  op_min_time.resize(ops_.size());
+  op_max_time.resize(ops_.size());
   op_total_time.resize(ops_.size());
   for (size_t i = 0; i < op_total_time.size(); ++i) {
+    op_min_time[i] = std::numeric_limits<double>::max();
+    op_max_time[i] = 0.0;
     op_total_time[i] = 0.0;
   }
   platform::Timer timeline;
@@ -372,6 +382,9 @@ void SectionWorker::TrainFilesWithProfiler() {
       op->Run(*exe_scope, place_);
       dev_ctx_->Wait();
       timeline.Pause();
+      double elapsed_us = timeline.ElapsedUS() / batch_size;
+      op_min_time[op_id] = std::min(op_min_time[op_id], elapsed_us);
+      op_max_time[op_id] = std::max(op_max_time[op_id], elapsed_us);
       op_total_time[op_id++] += timeline.ElapsedUS();
     }
     exe_scope->DropKids();
@@ -459,9 +472,19 @@ void SectionWorker::TrainFilesWithProfiler() {
              << " sync_time:" << sync_timer.ElapsedUS()
              << " main_time:" << main_timer.ElapsedUS()
              << " outer_time:" << outer_timer.ElapsedUS();
-  for (size_t i = 0; i < ops_.size(); ++i) {
+  /* for (size_t i = 0; i < ops_.size(); ++i) {
     LOG(ERROR) << "op: " << op_name[i]
                << ", mean time: " << op_total_time[i] / accum_num;
+  } */
+
+  if (op_time_stats_) {
+    int index = pipeline_num_ * thread_id_ + pipeline_id_;
+    auto& op_time_stats = *op_time_stats_;
+    for (size_t i = 0; i < op_total_time.size(); ++i) {
+      op_time_stats[section_id_][i][0][index] = op_min_time[i];
+      op_time_stats[section_id_][i][1][index] = op_max_time[i];
+      op_time_stats[section_id_][i][2][index] = op_total_time[i];
+    }
   }
 }
 }  // namespace framework
