@@ -125,6 +125,10 @@ void PipelineTrainer::Initialize(const TrainerDesc& trainer_desc,
   }
   // set debug here
   SetDebug(trainer_desc.debug());
+
+  if (debug_) {
+    InitOpTimeStats();
+  }
 }
 
 void PipelineTrainer::InitOtherEnv(const ProgramDesc& main_program) {
@@ -306,6 +310,11 @@ void PipelineTrainer::Finalize() {
   for (auto& th : section_threads_) {
     th.join();
   }
+
+  if (debug_) {
+    ShowOpTimeStats();
+  }
+
   if (need_dump_field_) {
     FinalizeDumpEnv();
   }
@@ -317,6 +326,103 @@ void PipelineTrainer::Finalize() {
     TensorCopySync(thread_tensor, platform::CPUPlace(), root_tensor);
   }
   root_scope_->DropKids();
+}
+
+void PipelineTrainer::InitOpTimeStats() {
+  // section
+  op_time_stats_.resize(section_num_);
+  op_name_.resize(section_num_);
+  for (size_t i = 0; i < op_time_stats_.size(); ++i) {
+    int thread_num = pipeline_config_.section_config(i).concurrency();
+
+    std::shared_ptr<framework::ProgramDesc> program_desc(
+        new ProgramDesc(pipeline_config_.section_config(i).program_desc()));
+    for (auto& op_desc : program_desc->Block(0).AllOps()) {
+      op_name_[i].push_back(op_desc->Type());
+    }
+
+    // op
+    op_time_stats_[i].resize(op_name_[i].size());
+    for (size_t j = 0; j < op_time_stats_[i].size(); ++j) {
+      // pipeline
+      op_time_stats_[i][j].resize(pipeline_num_);
+      for (size_t k = 0; k < op_time_stats_[i][j].size(); ++k) {
+        // thread
+        op_time_stats_[i][j][k].resize(thread_num, 0);
+      }
+    }
+
+    // set op time stats
+    for (size_t j = 0; j < workers_[i].size(); ++j) {
+      for (size_t k = 0; k < workers_[i][j].size(); ++k) {
+        auto w = std::dynamic_pointer_cast<paddle::framework::SectionWorker>(
+            workers_[i][j][k]);
+        w->SetOpTimeStats(&op_time_stats_);
+      }
+    }
+  }
+}
+
+void PipelineTrainer::ShowOpTimeStats() {
+  const int n_w = 40;
+  const int d_w = 15;
+
+  for (size_t i = 0; i < op_time_stats_.size(); ++i) {
+    // stats
+    double total = 0.0;
+    std::vector<std::vector<double>> op_pipeline;
+    std::vector<double> pipeline_sum(pipeline_num_, 0.0);
+    std::vector<double> op_sum(op_name_[i].size(), 0.0);
+    for (size_t j = 0; j < op_time_stats_[i].size(); ++j) {  // op
+      std::vector<double> pipeline;
+      for (size_t k = 0; k < op_time_stats_[i][j].size(); ++k) {  // pipeline
+        double sum = std::accumulate(op_time_stats_[i][j][k].begin(),
+                                     op_time_stats_[i][j][k].end(), 0.0) /
+                     1000000.0;
+        total += sum;
+        pipeline_sum[k] += sum;
+        op_sum[j] += sum;
+        pipeline.emplace_back(sum);
+      }
+      op_pipeline.emplace_back(pipeline);
+    }
+    total = total != 0 ? total : 1;
+
+    // head
+    std::stringstream out;
+    out << "----------------------------------------\n"
+        << "SECTION[" << i << "] OP TIME STATS:\n"
+        << "----------------------------------------\n";
+    out << std::setw(n_w) << "op";
+    out << " " << std::setw(d_w) << "%";
+    for (size_t j = 0; j < size_t(pipeline_num_); ++j) {
+      out << " " << std::setw(d_w) << "#" + std::to_string(j);
+    }
+    out << "\n";
+
+    // op
+    out << std::fixed;
+    for (size_t j = 0; j < op_pipeline.size(); ++j) {
+      out << std::setw(n_w) << op_name_[i][j];
+      out << " " << std::setw(d_w) << op_sum[j] / total * 100;
+      for (size_t k = 0; k < op_pipeline[i].size(); ++k) {
+        out << " " << std::setw(d_w) << op_pipeline[j][k];
+      }
+      out << "\n";
+    }
+
+    // sum
+    out << std::setw(n_w) << "#sum";
+    for (size_t j = 0; j < size_t(pipeline_num_); ++j) {
+      out << " " << std::setw(d_w) << pipeline_sum[j];
+    }
+    double p = std::accumulate(pipeline_sum.begin(), pipeline_sum.end(), 0.0) /
+               total * 100;
+    out << " " << std::setw(d_w) << p;
+
+    std::cout << out.str() << std::endl;
+    // LOG(INFO) << out.str();
+  }
 }
 
 Scope* PipelineTrainer::GetWorkerScope(int thread_id) {

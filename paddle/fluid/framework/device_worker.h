@@ -381,6 +381,12 @@ class SectionWorker : public DeviceWorker {
   SyncFunctor* sync_func_ = nullptr;
   void SetSyncFunctor(SyncFunctor* sync_func) { sync_func_ = sync_func; }
 
+  void SetOpTimeStats(
+      std::vector<std::vector<std::vector<std::vector<double>>>>*
+          op_time_stats) {
+    op_time_stats_ = op_time_stats;
+  }
+
   static std::atomic<int> cpu_id_;
 
  protected:
@@ -390,6 +396,10 @@ class SectionWorker : public DeviceWorker {
   int section_num_;
   int pipeline_num_;
   int thread_id_;
+
+  std::vector<std::vector<std::vector<std::vector<double>>>>* op_time_stats_ =
+      nullptr;
+
   // This worker will consume scope from in_scope_queue_
   // and produce scope to out_scope_queue_
   ScopeQueue* in_scope_queue_ = nullptr;

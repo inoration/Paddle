@@ -459,9 +459,17 @@ void SectionWorker::TrainFilesWithProfiler() {
              << " sync_time:" << sync_timer.ElapsedUS()
              << " main_time:" << main_timer.ElapsedUS()
              << " outer_time:" << outer_timer.ElapsedUS();
-  for (size_t i = 0; i < ops_.size(); ++i) {
+  /* for (size_t i = 0; i < ops_.size(); ++i) {
     LOG(ERROR) << "op: " << op_name[i]
                << ", mean time: " << op_total_time[i] / accum_num;
+  } */
+
+  if (op_time_stats_) {
+    auto& op_time_stats = *op_time_stats_;
+    for (size_t i = 0; i < op_total_time.size(); ++i) {
+      op_time_stats[section_id_][i][pipeline_id_][thread_id_] =
+          op_total_time[i];
+    }
   }
 }
 }  // namespace framework

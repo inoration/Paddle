@@ -144,6 +144,11 @@ class PipelineTrainer : public TrainerBase {
   int scope_queue_size_;
   int sync_steps_;
 
+  // section/op
+  std::vector<std::vector<std::string>> op_name_;
+  // section/op/pipeline/thread
+  std::vector<std::vector<std::vector<std::vector<double>>>> op_time_stats_;
+
   SectionWorkerParameter pipeline_config_;
 
   // The in/output var names for each section
@@ -179,6 +184,9 @@ class PipelineTrainer : public TrainerBase {
                            const Scope& root_scope);
   void CopyParameters(const Scope& root_scope, int pipeline_id);
   void construct_sync_functor();
+
+  void InitOpTimeStats();
+  void ShowOpTimeStats();
 };
 #endif
 }  // namespace framework
