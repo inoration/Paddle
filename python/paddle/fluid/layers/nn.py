@@ -648,7 +648,7 @@ def _pull_sparse_v2(input,
     return outs
 
 
-def _pull_box_query_emb(input, dtype='float32'):
+def _pull_box_query_emb(input, size, dtype='float32'):
     """
     **Pull Box Sparse Layer**
     """
@@ -657,7 +657,8 @@ def _pull_box_query_emb(input, dtype='float32'):
     helper.append_op(
         type='pull_box_query_emb',
         inputs={'Id': [input]},
-        outputs={'Out': [out]})
+        outputs={'Out': [out]},
+        attrs={'size': size})
     return out
 
 

@@ -61,7 +61,8 @@ class PullBoxQueryEmbOp : public framework::OperatorWithKernel {
   using framework::OperatorWithKernel::OperatorWithKernel;
   void InferShape(framework::InferShapeContext* ctx) const override {
     auto input_dim = ctx->GetInputDim("Id");
-    ctx->SetOutputDim("Out", {input_dim[0], 128});
+    auto size = static_cast<int64_t>(ctx->Attrs().Get<int>("size"));
+    ctx->SetOutputDim("Out", {input_dim[0], size});
     ctx->ShareLoD("Id", "Out");
   }
 
@@ -104,6 +105,7 @@ class PullBoxQueryEmbOpMaker : public framework::OpProtoAndCheckerMaker {
              "contains the ids to be looked up in BoxPS. "
              "The last dimension size must be 1.");
     AddOutput("Out", "The lookup results tensors.");
+    AddAttr<int>("size", "(int, the embedding hidden size").SetDefault(1);
     AddComment(R"DOC(
 Pull Box Sparse Operator.
 

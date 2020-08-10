@@ -423,7 +423,8 @@ void BoxWrapper::FeedPass(int date,
 
 void BoxWrapper::BeginFeedPass(int date, boxps::PSAgentBase** agent) {
   int ret = boxps_ptr_->BeginFeedPass(date, *agent);
-  int dim = 128;
+  int dim = BoxWrapper::embedx_dim_;
+  std::cout << "query emb dim:" << dim << std::endl;
   query_emb_set_q.emplace_back(dim);
   PADDLE_ENFORCE_EQ(ret, 0, platform::errors::PreconditionNotMet(
                                 "BeginFeedPass failed in BoxPS."));
